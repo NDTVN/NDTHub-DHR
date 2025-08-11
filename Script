@@ -1,0 +1,610 @@
+-- LocalScript 
+
+-- Services
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser")
+
+local player = Players.LocalPlayer
+
+-- State
+local running = false
+local flying = false
+local tpToolEnabled = false
+local shiftLockEnabled = false
+
+-- Fly speed config
+local flySpeed = 80
+local MIN_FLY = 10
+local MAX_FLY = 1000
+
+-- ========== GUI ==========
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AutoWinGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 240, 0, 650) -- tăng chiều cao thêm cho nút TP Tool
+frame.Position = UDim2.new(0, 20, 0, 20)
+frame.BackgroundColor3 = Color3.fromRGB(15, 40, 80)
+frame.BackgroundTransparency = 0.1 -- mờ 10%
+frame.BorderSizePixel = 0
+frame.Parent = screenGui
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
+
+local gradient = Instance.new("UIGradient")
+gradient.Color = ColorSequence.new{
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(10, 25, 50)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(25, 80, 150))
+}
+gradient.Rotation = 90
+gradient.Parent = frame
+
+-- Header (dùng để kéo)
+local header = Instance.new("Frame")
+header.Size = UDim2.new(1, 0, 0, 35)
+header.Position = UDim2.new(0, 0, 0, 0)
+header.BackgroundColor3 = Color3.fromRGB(10, 30, 60)
+header.BorderSizePixel = 0
+header.Parent = frame
+Instance.new("UICorner", header).CornerRadius = UDim.new(0, 12)
+
+local logoLabel = Instance.new("TextLabel")
+logoLabel.Size = UDim2.new(0, 90, 1, 0)
+logoLabel.Position = UDim2.new(0, 12, 0, 0)
+logoLabel.BackgroundTransparency = 1
+logoLabel.Text = "💠 NDT Hub 💠"
+logoLabel.TextColor3 = Color3.fromRGB(110, 210, 255)
+logoLabel.Font = Enum.Font.GothamBold
+logoLabel.TextSize = 18
+logoLabel.TextXAlignment = Enum.TextXAlignment.Left
+logoLabel.Parent = header
+
+local collapseBtn = Instance.new("TextButton")
+collapseBtn.Size = UDim2.new(0, 32, 0, 32)
+collapseBtn.Position = UDim2.new(1, -40, 0, 2)
+collapseBtn.BackgroundColor3 = Color3.fromRGB(35, 75, 130)
+collapseBtn.TextColor3 = Color3.new(1, 1, 1)
+collapseBtn.Font = Enum.Font.GothamBold
+collapseBtn.TextSize = 20
+collapseBtn.Text = "-"
+collapseBtn.Parent = header
+Instance.new("UICorner", collapseBtn).CornerRadius = UDim.new(0, 8)
+
+-- Helper: tạo nút chuẩn
+local function createButton(name, text, offsetY)
+	local btn = Instance.new("TextButton")
+	btn.Name = name
+	btn.Size = UDim2.new(0, 220, 0, 44)
+	btn.Position = UDim2.new(0, 10, 0, offsetY)
+	btn.BackgroundColor3 = Color3.fromRGB(25, 90, 160)
+	btn.TextColor3 = Color3.new(1, 1, 1)
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 18
+	btn.Text = text
+	btn.AutoButtonColor = false
+	btn.Parent = frame
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 10)
+	return btn
+end
+
+local toggleAutoWin = createButton("AutoWinBtn", "Auto Win: OFF", 50)
+local toggleFlyBtn  = createButton("FlyBtn", "Fly: OFF", 110)
+local toggleTpToolBtn = createButton("TpToolBtn", "TP Tool: OFF", 170) -- Nút TpTool ngay dưới Fly
+
+-- Hover effect
+local function addHoverEffect(btn)
+	local baseColor = btn.BackgroundColor3
+	btn.MouseEnter:Connect(function()
+		btn.BackgroundColor3 = btn.BackgroundColor3:lerp(Color3.fromRGB(0, 190, 255), 0.45)
+	end)
+	btn.MouseLeave:Connect(function()
+		-- restore based on ON/OFF text
+		if btn.Text:find("ON") then
+			btn.BackgroundColor3 = Color3.fromRGB(0, 190, 255)
+		else
+			btn.BackgroundColor3 = Color3.fromRGB(25, 90, 160)
+		end
+	end)
+end
+addHoverEffect(toggleAutoWin)
+addHoverEffect(toggleFlyBtn)
+addHoverEffect(toggleTpToolBtn)
+
+-- Speed & Jump boxes
+local speedBox = Instance.new("TextBox")
+speedBox.PlaceholderText = "WalkSpeed (default 16)"
+speedBox.Text = ""
+speedBox.Position = UDim2.new(0, 10, 0, 270) -- dời xuống cho vừa vì có nút TpTool mới
+speedBox.Size = UDim2.new(0, 220, 0, 36)
+speedBox.BackgroundColor3 = Color3.fromRGB(20, 80, 140)
+speedBox.TextColor3 = Color3.new(1, 1, 1)
+speedBox.Font = Enum.Font.Gotham
+speedBox.TextSize = 16
+speedBox.Parent = frame
+Instance.new("UICorner", speedBox).CornerRadius = UDim.new(0, 8)
+
+local jumpBox = Instance.new("TextBox")
+jumpBox.PlaceholderText = "JumpPower (default 50)"
+jumpBox.Text = ""
+jumpBox.Position = UDim2.new(0, 10, 0, 320)
+jumpBox.Size = UDim2.new(0, 220, 0, 36)
+jumpBox.BackgroundColor3 = Color3.fromRGB(20, 80, 140)
+jumpBox.TextColor3 = Color3.new(1, 1, 1)
+jumpBox.Font = Enum.Font.Gotham
+jumpBox.TextSize = 16
+jumpBox.Parent = frame
+Instance.new("UICorner", jumpBox).CornerRadius = UDim.new(0, 8)
+
+-- Countdown label
+local countdownLabel = Instance.new("TextLabel")
+countdownLabel.Size = UDim2.new(0, 220, 0, 24)
+countdownLabel.Position = UDim2.new(0, 10, 0, 220)
+countdownLabel.BackgroundTransparency = 1
+countdownLabel.TextColor3 = Color3.fromRGB(180, 220, 255)
+countdownLabel.Font = Enum.Font.GothamBold
+countdownLabel.TextSize = 16
+countdownLabel.Text = ""
+countdownLabel.Parent = frame
+
+-- Fly slider
+local flySpeedLabel = Instance.new("TextLabel")
+flySpeedLabel.Size = UDim2.new(0, 220, 0, 24)
+flySpeedLabel.Position = UDim2.new(0, 10, 0, 370)
+flySpeedLabel.BackgroundTransparency = 1
+flySpeedLabel.Text = "Fly Speed: " .. flySpeed
+flySpeedLabel.TextColor3 = Color3.fromRGB(180, 220, 255)
+flySpeedLabel.Font = Enum.Font.GothamBold
+flySpeedLabel.TextSize = 16
+flySpeedLabel.Parent = frame
+
+local flySpeedSlider = Instance.new("Frame")
+flySpeedSlider.Size = UDim2.new(0, 220, 0, 12)
+flySpeedSlider.Position = UDim2.new(0, 10, 0, 400)
+flySpeedSlider.BackgroundColor3 = Color3.fromRGB(30, 60, 110)
+flySpeedSlider.BorderSizePixel = 0
+flySpeedSlider.Parent = frame
+Instance.new("UICorner", flySpeedSlider).CornerRadius = UDim.new(0, 6)
+
+local sliderFill = Instance.new("Frame")
+local initialRel = math.clamp((flySpeed - MIN_FLY) / (MAX_FLY - MIN_FLY), 0, 1)
+sliderFill.Size = UDim2.new(initialRel, 0, 1, 0)
+sliderFill.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+sliderFill.BorderSizePixel = 0
+sliderFill.Parent = flySpeedSlider
+Instance.new("UICorner", sliderFill).CornerRadius = UDim.new(0, 6)
+
+-- small buttons: Anti-AFK & Anti-Ban toggle (bên dưới)
+local antiAfkEnabled = true
+local antiBanEnabled = true
+
+local antiAfkBtn = Instance.new("TextButton")
+antiAfkBtn.Size = UDim2.new(0, 90, 0, 28)
+antiAfkBtn.Position = UDim2.new(0, 10, 0, 440)
+antiAfkBtn.Text = "Anti-AFK: ON"
+antiAfkBtn.Font = Enum.Font.GothamBold
+antiAfkBtn.TextSize = 14
+antiAfkBtn.Parent = frame
+Instance.new("UICorner", antiAfkBtn).CornerRadius = UDim.new(0, 8)
+
+local antiBanBtn = Instance.new("TextButton")
+antiBanBtn.Size = UDim2.new(0, 90, 0, 28)
+antiBanBtn.Position = UDim2.new(0, 110, 0, 440)
+antiBanBtn.Text = "Anti-Ban: ON"
+antiBanBtn.Font = Enum.Font.GothamBold
+antiBanBtn.TextSize = 14
+antiBanBtn.Parent = frame
+Instance.new("UICorner", antiBanBtn).CornerRadius = UDim.new(0, 8)
+
+-- Open/minimize button (hiện GUI khi collapsed)
+local openMenuBtn = Instance.new("TextButton")
+openMenuBtn.Size = UDim2.new(0, 50, 0, 50)
+openMenuBtn.Position = UDim2.new(0, 20, 0, 20)
+openMenuBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+openMenuBtn.TextColor3 = Color3.new(1, 1, 1)
+openMenuBtn.Font = Enum.Font.GothamBold
+openMenuBtn.TextSize = 20
+openMenuBtn.Text = "≡"
+openMenuBtn.Visible = false
+openMenuBtn.Parent = screenGui
+Instance.new("UICorner", openMenuBtn).CornerRadius = UDim.new(1, 0)
+
+-- ========== Countdown & Auto Win ==========
+local countdownTime = 55
+local countdownCurrent = countdownTime
+local countdownRunning = false
+
+local function startCountdown()
+	if countdownRunning then return end
+	countdownRunning = true
+	task.spawn(function()
+		while countdownRunning do
+			countdownLabel.Text = "Next Win in: " .. countdownCurrent .. "s"
+			task.wait(1)
+			countdownCurrent -= 1
+			if countdownCurrent <= 0 then
+				countdownCurrent = countdownTime
+			end
+		end
+		countdownLabel.Text = ""
+	end)
+end
+
+local function stopCountdown()
+	countdownRunning = false
+	countdownLabel.Text = ""
+end
+
+local function fireWin()
+	local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	if hrp and ReplicatedStorage:FindFirstChild("Points") and ReplicatedStorage.Points:FindFirstChild("Addwins") then
+		local args = {1, hrp}
+		ReplicatedStorage.Points.Addwins:FireServer(unpack(args))
+		countdownCurrent = countdownTime
+	end
+end
+
+task.spawn(function()
+	while true do
+		if running then
+			fireWin()
+			task.wait(countdownTime)
+		else
+			task.wait(1)
+		end
+	end
+end)
+
+toggleAutoWin.MouseButton1Click:Connect(function()
+	running = not running
+	toggleAutoWin.Text = running and "Auto Win: ON" or "Auto Win: OFF"
+	toggleAutoWin.BackgroundColor3 = running and Color3.fromRGB(0, 190, 255) or Color3.fromRGB(25, 90, 160)
+	if running then
+		countdownCurrent = countdownTime
+		startCountdown()
+	else
+		stopCountdown()
+	end
+end)
+
+-- ========== Fly system ==========
+local bodyGyro, bodyVelocity, flyConn
+
+local function enableFly()
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+
+	-- cleanup old if any
+	if bodyGyro then bodyGyro:Destroy() end
+	if bodyVelocity then bodyVelocity:Destroy() end
+
+	bodyGyro = Instance.new("BodyGyro")
+	bodyGyro.P = 9e4
+	bodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+	bodyGyro.CFrame = hrp.CFrame
+	bodyGyro.Parent = hrp
+
+	bodyVelocity = Instance.new("BodyVelocity")
+	bodyVelocity.Velocity = Vector3.new(0,0,0)
+	bodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+	bodyVelocity.Parent = hrp
+
+	-- disconnect previous connection safe
+	if flyConn then flyConn:Disconnect() flyConn = nil end
+
+	flyConn = RunService.RenderStepped:Connect(function()
+		if not bodyVelocity or not bodyGyro then return end
+		local camera = workspace.CurrentCamera
+		if not camera then return end
+		local moveVector = Vector3.new(0,0,0)
+		if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveVector += camera.CFrame.LookVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveVector -= camera.CFrame.LookVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveVector -= camera.CFrame.RightVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveVector += camera.CFrame.RightVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveVector += Vector3.new(0,1,0) end
+		if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then moveVector -= Vector3.new(0,1,0) end
+
+		if moveVector.Magnitude > 0 then
+			moveVector = moveVector.Unit * flySpeed
+		else
+			moveVector = Vector3.new(0,0,0)
+		end
+
+		bodyVelocity.Velocity = moveVector
+		bodyGyro.CFrame = camera.CFrame
+	end)
+end
+
+local function disableFly()
+	if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
+	if bodyVelocity then bodyVelocity:Destroy() bodyVelocity = nil end
+	if flyConn then flyConn:Disconnect() flyConn = nil end
+end
+
+toggleFlyBtn.MouseButton1Click:Connect(function()
+	flying = not flying
+	toggleFlyBtn.Text = flying and "Fly: ON" or "Fly: OFF"
+	toggleFlyBtn.BackgroundColor3 = flying and Color3.fromRGB(0, 160, 255) or Color3.fromRGB(25, 90, 160)
+	if flying then enableFly() else disableFly() end
+end)
+
+-- Slider control
+local draggingSlider = false
+flySpeedSlider.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		draggingSlider = true
+	end
+end)
+flySpeedSlider.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		draggingSlider = false
+	end
+end)
+UserInputService.InputChanged:Connect(function(input)
+	if draggingSlider and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+		local relX = math.clamp((input.Position.X - flySpeedSlider.AbsolutePosition.X) / flySpeedSlider.AbsoluteSize.X, 0, 1)
+		sliderFill.Size = UDim2.new(relX, 0, 1, 0)
+		flySpeed = math.floor(MIN_FLY + relX * (MAX_FLY - MIN_FLY))
+		flySpeedLabel.Text = "Fly Speed: " .. flySpeed
+	end
+end)
+
+-- ========== Walk/Jump edits ==========
+speedBox.FocusLost:Connect(function()
+	local value = tonumber(speedBox.Text)
+	if value then
+		local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+		if humanoid then humanoid.WalkSpeed = value end
+	end
+end)
+jumpBox.FocusLost:Connect(function()
+	local value = tonumber(jumpBox.Text)
+	if value then
+		local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+		if humanoid then humanoid.JumpPower = value end
+	end
+end)
+
+-- ========== Collapse / Dragging GUI ==========
+local collapsed = false
+
+collapseBtn.MouseButton1Click:Connect(function()
+	collapsed = not collapsed
+	if collapsed then
+		frame.Visible = false
+		openMenuBtn.Visible = true
+	else
+		frame.Visible = true
+		openMenuBtn.Visible = false
+	end
+end)
+
+openMenuBtn.MouseButton1Click:Connect(function()
+	frame.Visible = true
+	openMenuBtn.Visible = false
+	collapsed = false
+end)
+
+-- Drag frame by header (PC + Touch)
+do
+	local draggingFrame = false
+	local dragInput, dragStart, startPos
+
+	header.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			draggingFrame = true
+			dragStart = input.Position
+			startPos = frame.Position
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					draggingFrame = false
+				end
+			end)
+		end
+	end)
+	header.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			dragInput = input
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if draggingFrame and input == dragInput then
+			local delta = input.Position - dragStart
+			frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+		end
+	end)
+end
+
+-- ========== Anti-AFK & Anti-Ban ==========
+antiAfkBtn.MouseButton1Click:Connect(function()
+	antiAfkEnabled = not antiAfkEnabled
+	if antiAfkEnabled then
+		antiAfkBtn.Text = "Anti-AFK: ON"
+		antiAfkBtn.BackgroundColor3 = Color3.fromRGB(0, 190, 255)
+	else
+		antiAfkBtn.Text = "Anti-AFK: OFF"
+		antiAfkBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+	end
+end)
+antiBanBtn.MouseButton1Click:Connect(function()
+	antiBanEnabled = not antiBanEnabled
+	if antiBanEnabled then
+		antiBanBtn.Text = "Anti-Ban: ON"
+		antiBanBtn.BackgroundColor3 = Color3.fromRGB(0, 190, 255)
+	else
+		antiBanBtn.Text = "Anti-Ban: OFF"
+		antiBanBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+	end
+end)
+
+-- Anti-AFK implementation
+if antiAfkEnabled then
+	player.Idled:Connect(function()
+		VirtualUser:Button2Down(Vector2.new(0,0))
+		wait(1)
+		VirtualUser:Button2Up(Vector2.new(0,0))
+	end)
+end
+
+-- ========== Teleport Tool ==========
+local teleportTool = nil
+
+local function createTeleportTool()
+	teleportTool = Instance.new("Tool")
+	teleportTool.Name = "TeleportTool"
+	teleportTool.RequiresHandle = false
+	teleportTool.Parent = player.Backpack
+	
+	local mouse = player:GetMouse()
+	
+	teleportTool.Activated:Connect(function()
+		local targetPos = mouse.Hit.p
+		local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			hrp.CFrame = CFrame.new(targetPos + Vector3.new(0,3,0))
+		end
+	end)
+end
+
+toggleTpToolBtn.MouseButton1Click:Connect(function()
+	tpToolEnabled = not tpToolEnabled
+	toggleTpToolBtn.Text = tpToolEnabled and "TP Tool: ON" or "TP Tool: OFF"
+	toggleTpToolBtn.BackgroundColor3 = tpToolEnabled and Color3.fromRGB(0, 190, 255) or Color3.fromRGB(25, 90, 160)
+	if tpToolEnabled then
+		if not teleportTool then
+			createTeleportTool()
+		end
+	else
+		if teleportTool then
+			teleportTool:Destroy()
+			teleportTool = nil
+		end
+	end
+end)
+
+-- ========== Spectate system ==========
+
+local spectateEnabled = false
+local spectatePlayer = nil
+local playersList = {}
+local spectateIndex = 1
+
+local playerNameLabel = Instance.new("TextLabel")
+playerNameLabel.Size = UDim2.new(0, 220, 0, 28)
+playerNameLabel.Position = UDim2.new(0, 10, 0, 480)
+playerNameLabel.BackgroundTransparency = 1
+playerNameLabel.TextColor3 = Color3.fromRGB(180, 220, 255)
+playerNameLabel.Font = Enum.Font.GothamBold
+playerNameLabel.TextSize = 18
+playerNameLabel.Text = "Spectate: None"
+playerNameLabel.Parent = frame
+
+local prevBtn = Instance.new("TextButton")
+prevBtn.Size = UDim2.new(0, 80, 0, 30)
+prevBtn.Position = UDim2.new(0, 10, 0, 510)
+prevBtn.Text = "⬅️"
+prevBtn.Font = Enum.Font.GothamBold
+prevBtn.TextSize = 18
+prevBtn.BackgroundColor3 = Color3.fromRGB(35, 75, 130)
+prevBtn.TextColor3 = Color3.new(1,1,1)
+prevBtn.Parent = frame
+Instance.new("UICorner", prevBtn).CornerRadius = UDim.new(0, 8)
+
+local nextBtn = Instance.new("TextButton")
+nextBtn.Size = UDim2.new(0, 80, 0, 30)
+nextBtn.Position = UDim2.new(0, 130, 0, 510)
+nextBtn.Text = "➡️"
+nextBtn.Font = Enum.Font.GothamBold
+nextBtn.TextSize = 18
+nextBtn.BackgroundColor3 = Color3.fromRGB(35, 75, 130)
+nextBtn.TextColor3 = Color3.new(1,1,1)
+nextBtn.Parent = frame
+Instance.new("UICorner", nextBtn).CornerRadius = UDim.new(0, 8)
+
+local toggleSpectateBtn = Instance.new("TextButton")
+toggleSpectateBtn.Size = UDim2.new(0, 220, 0, 44)
+toggleSpectateBtn.Position = UDim2.new(0, 10, 0, 550)
+toggleSpectateBtn.Text = "Spectate: OFF"
+toggleSpectateBtn.Font = Enum.Font.GothamBold
+toggleSpectateBtn.TextSize = 18
+toggleSpectateBtn.BackgroundColor3 = Color3.fromRGB(25, 90, 160)
+toggleSpectateBtn.TextColor3 = Color3.new(1,1,1)
+toggleSpectateBtn.Parent = frame
+Instance.new("UICorner", toggleSpectateBtn).CornerRadius = UDim.new(0, 10)
+
+local function updatePlayersList()
+	playersList = {}
+	for _, p in pairs(Players:GetPlayers()) do
+		if p ~= player then
+			table.insert(playersList, p)
+		end
+	end
+	if spectateIndex > #playersList then
+		spectateIndex = 1
+	end
+	if #playersList == 0 then
+		playerNameLabel.Text = "Spectate: None"
+		spectatePlayer = nil
+	else
+		spectatePlayer = playersList[spectateIndex]
+		playerNameLabel.Text = "Spectate: " .. spectatePlayer.Name
+	end
+end
+
+prevBtn.MouseButton1Click:Connect(function()
+	if #playersList == 0 then return end
+	spectateIndex -= 1
+	if spectateIndex < 1 then spectateIndex = #playersList end
+	updatePlayersList()
+end)
+
+nextBtn.MouseButton1Click:Connect(function()
+	if #playersList == 0 then return end
+	spectateIndex += 1
+	if spectateIndex > #playersList then spectateIndex = 1 end
+	updatePlayersList()
+end)
+
+toggleSpectateBtn.MouseButton1Click:Connect(function()
+	spectateEnabled = not spectateEnabled
+	if spectateEnabled then
+		updatePlayersList()
+		toggleSpectateBtn.Text = "Spectate: ON"
+		toggleSpectateBtn.BackgroundColor3 = Color3.fromRGB(0, 190, 255)
+	else
+		toggleSpectateBtn.Text = "Spectate: OFF"
+		toggleSpectateBtn.BackgroundColor3 = Color3.fromRGB(25, 90, 160)
+		-- reset camera
+		local cam = workspace.CurrentCamera
+		cam.CameraType = Enum.CameraType.Custom
+		cam.CameraSubject = player.Character and player.Character:FindFirstChildOfClass("Humanoid") or player.Character
+	end
+end)
+
+-- Update camera follow spectate player every frame
+RunService.RenderStepped:Connect(function()
+	if spectateEnabled and spectatePlayer then
+		local cam = workspace.CurrentCamera
+		local targetChar = spectatePlayer.Character
+		local targetHRP = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+		
+		if targetHRP then
+			cam.CameraType = Enum.CameraType.Scriptable
+			local offset = Vector3.new(0, 5, 10)
+			cam.CFrame = CFrame.new(targetHRP.Position + offset, targetHRP.Position)
+		else
+			-- fallback nếu chưa load model
+			cam.CameraType = Enum.CameraType.Custom
+			cam.CameraSubject = player.Character and player.Character:FindFirstChildOfClass("Humanoid") or player.Character
+		end
+	else
+		-- default camera khi không spectate
+		local cam = workspace.CurrentCamera
+		cam.CameraType = Enum.CameraType.Custom
+		cam.CameraSubject = player.Character and player.Character:FindFirstChildOfClass("Humanoid") or player.Character
+	end
+end)
