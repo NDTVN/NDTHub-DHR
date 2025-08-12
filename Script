@@ -1,19 +1,81 @@
--- LocalScript 
-
--- Services
+--local
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local VirtualUser = game:GetService("VirtualUser")
 
 local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
 
--- State
+local shiftLockEnabled = false
+local mouseLocked = false
 local running = false
 local flying = false
 local tpToolEnabled = false
-local shiftLockEnabled = false
+
+-- Tạo ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Parent = player:WaitForChild("PlayerGui")
+screenGui.ResetOnSpawn = false
+
+-- Tạo nút
+local button = Instance.new("TextButton")
+button.Size = UDim2.new(0, 150, 0, 40)
+button.Position = UDim2.new(0, 20, 0, 680)
+button.BackgroundColor3 = Color3.fromRGB(0, 100, 180) -- Xanh đậm khi tắt
+button.Text = "[Alt]ShiftLock: OFF"
+button.TextColor3 = Color3.new(1, 1, 1)
+button.Font = Enum.Font.GothamBold
+button.TextSize = 18
+button.AutoButtonColor = false
+button.Parent = screenGui
+
+-- Bo góc
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 8)
+corner.Parent = button
+
+-- Hiệu ứng hover
+button.MouseEnter:Connect(function()
+    local tween = TweenService:Create(button, TweenInfo.new(0.2), {
+        BackgroundColor3 = shiftLockEnabled and Color3.fromRGB(100, 200, 255) or Color3.fromRGB(0, 120, 200)
+    })
+    tween:Play()
+end)
+button.MouseLeave:Connect(function()
+    local tween = TweenService:Create(button, TweenInfo.new(0.2), {
+        BackgroundColor3 = shiftLockEnabled and Color3.fromRGB(0, 170, 255) or Color3.fromRGB(0, 100, 180)
+    })
+    tween:Play()
+end)
+
+-- Hàm bật/tắt ShiftLock
+local function toggleShiftLock()
+    shiftLockEnabled = not shiftLockEnabled
+    mouseLocked = shiftLockEnabled
+    UserInputService.MouseBehavior = shiftLockEnabled and Enum.MouseBehavior.LockCenter or Enum.MouseBehavior.Default
+    camera.CameraSubject = player.Character:FindFirstChildWhichIsA("Humanoid")
+    
+    -- Cập nhật giao diện
+    local tween = TweenService:Create(button, TweenInfo.new(0.25), {
+        BackgroundColor3 = shiftLockEnabled and Color3.fromRGB(0, 170, 255) or Color3.fromRGB(0, 100, 180)
+    })
+    tween:Play()
+    button.Text = shiftLockEnabled and "[Alt]ShiftLock: ON" or "[Alt]ShiftLock: OFF"
+end
+
+-- Sự kiện click nút
+button.MouseButton1Click:Connect(toggleShiftLock)
+
+-- Sự kiện nhấn Alt
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.LeftAlt then
+        toggleShiftLock()
+    end
+end)
 
 -- Fly speed config
 local flySpeed = 80
