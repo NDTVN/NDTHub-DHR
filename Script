@@ -77,6 +77,49 @@ UserInputService.InputBegan:Connect(function(input, gp)
     end
 end)
 
+-- ShiftLock movement direction fix
+local function updateMovement()
+    if shiftLockEnabled and player.Character then
+        local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            -- Get camera look vector (forward direction)
+            local camera = workspace.CurrentCamera
+            local lookVector = camera.CFrame.LookVector
+            lookVector = Vector3.new(lookVector.X, 0, lookVector.Z).Unit
+            
+            -- Get right vector for strafing
+            local rightVector = camera.CFrame.RightVector
+            rightVector = Vector3.new(rightVector.X, 0, rightVector.Z).Unit
+            
+            -- Calculate movement direction based on input
+            local moveDirection = Vector3.new(0, 0, 0)
+            
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                moveDirection = moveDirection + lookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                moveDirection = moveDirection - lookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                moveDirection = moveDirection - rightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                moveDirection = moveDirection + rightVector
+            end
+            
+            -- Apply movement if any direction is pressed
+            if moveDirection.Magnitude > 0 then
+                humanoid:Move(moveDirection, true)
+            else
+                humanoid:Move(Vector3.new(0, 0, 0), false)
+            end
+        end
+    end
+end
+
+-- Connect movement update to render stepped
+RunService.RenderStepped:Connect(updateMovement)
+
 -- Fly speed config
 local flySpeed = 80
 local MIN_FLY = 10
@@ -427,7 +470,10 @@ jumpBox.FocusLost:Connect(function()
 	local value = tonumber(jumpBox.Text)
 	if value then
 		local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
-		if humanoid then humanoid.JumpPower = value end
+		if humanoid then 
+			humanoid.JumpPower = value
+			jumpBox.Text = tostring(value) -- Update text to confirm change
+		end
 	end
 end)
 
@@ -514,38 +560,80 @@ end
 
 -- ========== Teleport Tool ==========
 local teleportTool = nil
+local teleportConn = nil
 
 local function createTeleportTool()
-	teleportTool = Instance.new("Tool")
-	teleportTool.Name = "TeleportTool"
-	teleportTool.RequiresHandle = false
-	teleportTool.Parent = player.Backpack
-	
-	local mouse = player:GetMouse()
-	
-	teleportTool.Activated:Connect(function()
-		local targetPos = mouse.Hit.p
-		local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-		if hrp then
-			hrp.CFrame = CFrame.new(targetPos + Vector3.new(0,3,0))
-		end
-	end)
+    teleportTool = Instance.new("Tool")
+    teleportTool.Name = "TeleportTool"
+    teleportTool.RequiresHandle = false
+    teleportTool.Parent = player.Backpack
+    
+    local mouse = player:GetMouse()
+    
+    teleportTool.Activated:Connect(function()
+        local targetPos = mouse.Hit.p
+        local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            -- Check if target position is above ground (not in air)
+            local raycastParams = RaycastParams.new()
+            raycastParams.FilterDescendantsInstances = {workspace.Terrain}
+            raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+            raycastParams.IgnoreWater = true
+            
+            local raycastResult = workspace:Raycast(targetPos + Vector3.new(0, 100, 0), Vector3.new(0, -200, 0), raycastParams)
+            
+            if raycastResult then
+                local groundPosition = raycastResult.Position
+                hrp.CFrame = CFrame.new(groundPosition + Vector3.new(0, 3, 0))
+            end
+        end
+    end)
+end
+
+local function enableClickTeleport()
+    if teleportConn then teleportConn:Disconnect() teleportConn = nil end
+    
+    teleportConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+        if gameProcessed or not tpToolEnabled then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local mouse = player:GetMouse()
+            local targetPos = mouse.Hit.p
+            local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                -- Check if target position is above ground (not in air)
+                local raycastParams = RaycastParams.new()
+                raycastParams.FilterDescendantsInstances = {player.Character}
+                raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+                raycastParams.IgnoreWater = true
+                
+                local raycastResult = workspace:Raycast(targetPos + Vector3.new(0, 100, 0), Vector3.new(0, -200, 0), raycastParams)
+                
+                if raycastResult then
+                    local groundPosition = raycastResult.Position
+                    hrp.CFrame = CFrame.new(groundPosition + Vector3.new(0, 3, 0))
+                end
+            end
+        end
+    end)
 end
 
 toggleTpToolBtn.MouseButton1Click:Connect(function()
-	tpToolEnabled = not tpToolEnabled
-	toggleTpToolBtn.Text = tpToolEnabled and "TP Tool: ON" or "TP Tool: OFF"
-	toggleTpToolBtn.BackgroundColor3 = tpToolEnabled and Color3.fromRGB(0, 190, 255) or Color3.fromRGB(25, 90, 160)
-	if tpToolEnabled then
-		if not teleportTool then
-			createTeleportTool()
-		end
-	else
-		if teleportTool then
-			teleportTool:Destroy()
-			teleportTool = nil
-		end
-	end
+    tpToolEnabled = not tpToolEnabled
+    toggleTpToolBtn.Text = tpToolEnabled and "TP Tool: ON" or "TP Tool: OFF"
+    toggleTpToolBtn.BackgroundColor3 = tpToolEnabled and Color3.fromRGB(0, 190, 255) or Color3.fromRGB(25, 90, 160)
+    
+    if tpToolEnabled then
+        enableClickTeleport()
+    else
+        if teleportConn then
+            teleportConn:Disconnect()
+            teleportConn = nil
+        end
+        if teleportTool then
+            teleportTool:Destroy()
+            teleportTool = nil
+        end
+    end
 end)
 
 -- ========== Spectate system ==========
